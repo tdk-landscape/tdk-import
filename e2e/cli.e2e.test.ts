@@ -60,7 +60,8 @@ describe("tdk-import (built CLI)", () => {
       appType: "bring-your-own",
       stack: "shop",
       dependsOn: ["db"],
-      dockerfile: "../../../api/Dockerfile",
+      buildContext: "../../../api",
+      dockerfile: "Dockerfile",
     });
     expect(manifest("db").image).toBe("postgres:16");
     expect(manifest("release")).toMatchObject({ restart: "no", exposeViaProxy: false });

@@ -206,7 +206,8 @@ describe("merge across files", () => {
     expect(api?.command).toBe("node server.js");
     const [item] = planWrites(plan, false).items;
     expect(item?.manifest.port).toBe(4000);
-    expect(item?.manifest.dockerfile).toBe("../../../api/Dockerfile");
+    expect(item?.manifest.buildContext).toBe("../../../api");
+    expect(item?.manifest.dockerfile).toBe("Dockerfile");
   });
 
   it("uses an agreed in-range port and a free TDK port otherwise", () => {
@@ -281,5 +282,42 @@ describe("ports", () => {
     const items = planWrites(buildPlan(root), false).items;
     expect(items.find((i) => i.service.name === "web")?.status).toBe("exists");
     expect(items.find((i) => i.service.name === "worker")?.manifest.port).toBe(4001);
+  });
+});
+
+describe("runnable output", () => {
+  it("scaffolds a Dockerfile for a Node/Bun Procfile command, building from the source dir", () => {
+    tree({ Procfile: "web: npm start\nworker: python worker.py\n" });
+    const items = planWrites(buildPlan(root), false).items;
+    const web = items.find((i) => i.service.name === "web");
+    expect(web?.manifest).toMatchObject({
+      buildContext: "../../..",
+      dockerfile: "./services/shop/web/Dockerfile",
+    });
+    expect(web?.extraFiles[0]?.content).toContain("FROM node:22-alpine");
+    expect(web?.extraFiles[0]?.content).toContain('CMD ["sh", "-c", "npm start"]');
+    // a runtime we cannot build for is not guessed
+    const worker = items.find((i) => i.service.name === "worker");
+    expect(worker?.extraFiles).toEqual([]);
+    expect(worker?.notes.join()).toContain("no image or Dockerfile found");
+    applyWrites(planWrites(buildPlan(root), false));
+    expect(existsSync(join(root, "services", "shop", "web", "Dockerfile"))).toBe(true);
+    expect(existsSync(join(root, "services", "shop", "worker", "Dockerfile"))).toBe(false);
+  });
+
+  it("does not re-import its own output or a TDK project's services/", () => {
+    tree({ Procfile: "web: npm start\n" });
+    applyWrites(planWrites(buildPlan(root), false));
+    const again = buildPlan(root);
+    expect(again.services.map((s) => s.name)).toEqual(["web"]);
+    expect(again.notes.join()).toContain("already TDK services");
+
+    tree({
+      ".tdk/project.json": "{}",
+      "services/platform/db/docker-compose.yml": "services:\n  postgres:\n    image: postgres:16\n",
+    });
+    const project = buildPlan(root);
+    expect(project.services.map((s) => s.name)).toEqual(["web"]);
+    expect(project.notes.join()).toContain("TDK project detected");
   });
 });
