@@ -1,0 +1,9 @@
+services:
+  api:
+    build: ./api
+    ports: ["8080:3000"]
+    environment:
+      DATABASE_URL: postgres://secret@db/app
+    depends_on: [db]
+  db:
+    image: postgres:16
