@@ -38,7 +38,16 @@ const program = new Command("tdk-import")
     console.log(formatPlan(plan, writes));
 
     const pending = writes.items.filter((i) => i.status !== "exists");
-    if (plan.services.length === 0) return void console.log("Nothing to import.");
+    if (plan.services.length === 0) {
+      if (plan.unsupported.length > 0) {
+        throw new ImportError(
+          `${plan.unsupported.join(", ")} is not imported; nothing was written`,
+          ["tdk import reads Compose, Dockerfile, package.json scripts, and Procfile"],
+          2,
+        );
+      }
+      return void console.log("Nothing to import.");
+    }
     if (options.dryRun) return void console.log("Dry run: nothing written.");
     if (pending.length === 0) {
       return void console.log("Nothing to write: every service.json already exists.");
@@ -56,5 +65,5 @@ try {
 } catch (err) {
   console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
   if (err instanceof ImportError) for (const s of err.suggestions) console.error(`  -> ${s}`);
-  process.exit(1);
+  process.exit(err instanceof ImportError && err.exitCode ? err.exitCode : 1);
 }

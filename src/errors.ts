@@ -3,6 +3,7 @@ export class ImportError extends Error {
   constructor(
     message: string,
     public suggestions: string[] = [],
+    public exitCode?: number,
   ) {
     super(message);
     this.name = "ImportError";
