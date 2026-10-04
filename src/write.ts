@@ -3,7 +3,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { ImportError } from "./errors.js";
 import { type MergedService, toResourceName } from "./merge.js";
 import { type ImportPlan, usedManifestPorts } from "./plan.js";
-import { scaffoldDockerfile } from "./scaffold.js";
+import { SCAFFOLD_DOCKERIGNORE, scaffoldDockerfile } from "./scaffold.js";
 import {
   BYO_PORT_RANGE,
   findProjectRoot,
@@ -124,7 +124,10 @@ export function planWrites(plan: ImportPlan, force: boolean): WritePlan {
       } else {
         const scaffold = service.command ? scaffoldDockerfile(service.command) : undefined;
         if (scaffold) {
-          extraFiles.push({ path: join(manifestDir, "Dockerfile"), content: scaffold });
+          extraFiles.push(
+            { path: join(manifestDir, "Dockerfile"), content: scaffold },
+            { path: join(manifestDir, "Dockerfile.dockerignore"), content: SCAFFOLD_DOCKERIGNORE },
+          );
           buildFields.buildContext = relative(manifestDir, sourceDir).split("\\").join("/") || ".";
           buildFields.dockerfile = toContext(join(manifestDir, "Dockerfile"));
           notes.push(

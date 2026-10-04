@@ -295,6 +295,8 @@ describe("runnable output", () => {
       dockerfile: "./services/shop/web/Dockerfile",
     });
     expect(web?.extraFiles[0]?.content).toContain("FROM node:22-alpine");
+    expect(web?.extraFiles[1]?.path).toMatch(/Dockerfile\.dockerignore$/);
+    expect(web?.extraFiles[1]?.content).toContain(".env");
     expect(web?.extraFiles[0]?.content).toContain('CMD ["sh", "-c", "npm start"]');
     // a runtime we cannot build for is not guessed
     const worker = items.find((i) => i.service.name === "worker");
