@@ -1,0 +1,4 @@
+web: node server.js
+worker: node worker.js
+release: npm run migrate
+bad line
