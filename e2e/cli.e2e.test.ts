@@ -109,4 +109,24 @@ describe("tdk-import (built CLI)", () => {
     expect(r.code).toBe(1);
     expect(r.err).toContain("not a directory");
   });
+
+  it("refuses a Helm-only directory: exit 2, names Helm, writes nothing", () => {
+    const helm = join(work, "chart");
+    cpSync(join(import.meta.dirname, "fixtures", "helm-only"), helm, { recursive: true });
+    const r = run(["chart"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("Helm is not imported");
+    expect(r.out).toContain("Chart.yaml [unsupported]: Helm is not imported");
+    expect(existsSync(join(helm, "services"))).toBe(false);
+  });
+
+  it("lists Helm as skipped but still imports Compose when both exist", () => {
+    cpSync(
+      join(import.meta.dirname, "fixtures", "helm-only", "Chart.yaml"),
+      join(repo, "Chart.yaml"),
+    );
+    const r = run(["shop", "--dry-run"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("Chart.yaml [unsupported]: Helm is not imported");
+  });
 });

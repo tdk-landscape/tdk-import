@@ -5,11 +5,14 @@ import { type MergedService, mergeCandidates } from "./merge.js";
 import { selectDetectors } from "./registry.js";
 import { scanTree } from "./scan.js";
 import type { Candidate, Skip } from "./types.js";
+import { findUnsupported } from "./unsupported.js";
 
 export interface ImportPlan {
   root: string;
   services: MergedService[];
   skips: Skip[];
+  /** Formats found but not imported (Helm, Kustomize), by name. */
+  unsupported: string[];
   notes: string[];
   files: string[];
 }
@@ -42,11 +45,13 @@ export function buildPlan(dir: string, only?: string[]): ImportPlan {
     }
   }
 
+  const unsupported = findUnsupported(scan.files);
   const merged = mergeCandidates(candidates, basename(root));
   return {
     root,
     services: merged.services,
-    skips: [...skips, ...merged.skips],
+    skips: [...skips, ...merged.skips, ...unsupported.skips],
+    unsupported: unsupported.labels,
     notes: scan.notes,
     files: scan.files,
   };
