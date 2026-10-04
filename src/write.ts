@@ -3,6 +3,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { ImportError } from "./errors.js";
 import { type MergedService, toResourceName } from "./merge.js";
 import { type ImportPlan, usedManifestPorts } from "./plan.js";
+import { SCAFFOLD_DOCKERIGNORE, scaffoldDockerfile } from "./scaffold.js";
 import {
   BYO_PORT_RANGE,
   findProjectRoot,
@@ -19,6 +20,8 @@ export interface WriteItem {
   manifest: Record<string, unknown>;
   status: WriteStatus;
   notes: string[];
+  /** Files written next to the manifest (a scaffolded Dockerfile). */
+  extraFiles: { path: string; content: string }[];
 }
 
 export interface WritePlan {
@@ -105,19 +108,40 @@ export function planWrites(plan: ImportPlan, force: boolean): WritePlan {
     const dropped = service.dependsOn.filter((d) => d !== service.name && !names.has(d));
     if (dropped.length)
       notes.push(`dependsOn not written, not in this import: ${dropped.join(", ")}`);
-    let dockerfile = "./Dockerfile";
-    if (!service.image && !service.dockerfile) {
-      notes.push("no image or Dockerfile found; add one before `tdk up`");
-    } else if (!service.image && service.dockerfile) {
-      const found = resolve(plan.root, service.dir, service.dockerfile);
-      const rel = relative(dirname(path), found).split("\\").join("/");
-      dockerfile = rel.startsWith(".") ? rel : `./${rel}`;
-      notes.push(
-        "Dockerfile stays in the source tree; TDK builds bring-your-own with the manifest directory as context, so COPY paths may need adjusting",
-      );
+    const manifestDir = dirname(path);
+    const sourceDir = resolve(plan.root, service.dir);
+    const extraFiles: WriteItem["extraFiles"] = [];
+    const buildFields: Record<string, string> = {};
+    const toContext = (abs: string) => {
+      const rel = relative(sourceDir, abs).split("\\").join("/");
+      return rel.startsWith(".") ? rel : `./${rel}`;
+    };
+    if (!service.image) {
+      if (service.dockerfile) {
+        // Build from the source tree the Dockerfile lives in; dockerfile is relative to that context.
+        buildFields.buildContext = relative(manifestDir, sourceDir).split("\\").join("/") || ".";
+        buildFields.dockerfile = service.dockerfile;
+      } else {
+        const scaffold = service.command ? scaffoldDockerfile(service.command) : undefined;
+        if (scaffold) {
+          extraFiles.push(
+            { path: join(manifestDir, "Dockerfile"), content: scaffold },
+            { path: join(manifestDir, "Dockerfile.dockerignore"), content: SCAFFOLD_DOCKERIGNORE },
+          );
+          buildFields.buildContext = relative(manifestDir, sourceDir).split("\\").join("/") || ".";
+          buildFields.dockerfile = toContext(join(manifestDir, "Dockerfile"));
+          notes.push(
+            "no Dockerfile found: scaffolded one from the command (guessed base image); the app must listen on $PORT",
+          );
+        } else {
+          buildFields.dockerfile = "./Dockerfile";
+          notes.push("no image or Dockerfile found; add one before `tdk up`");
+        }
+      }
     }
-    if (service.command)
+    if (service.command && !service.dockerfile && extraFiles.length === 0) {
       notes.push("command is kept as dev.command; bring-your-own does not run it");
+    }
     if (service.envKeys.length)
       notes.push("environment values are not written; put them in the project .env");
 
@@ -129,12 +153,12 @@ export function planWrites(plan: ImportPlan, force: boolean): WritePlan {
       stack,
       port,
       healthCheckPath: "/health",
-      ...(service.image ? { image: service.image } : { dockerfile }),
+      ...(service.image ? { image: service.image } : buildFields),
       ...(service.kind === "job" ? { restart: "no", exposeViaProxy: false } : {}),
       ...(dependsOn.length ? { dependsOn } : {}),
       ...(service.command ? { dev: { command: service.command } } : {}),
     };
-    items.push({ service, path, manifest, status, notes });
+    items.push({ service, path, manifest, status, notes, extraFiles });
   }
   return { stack, items, rejected };
 }
@@ -145,6 +169,7 @@ export function applyWrites(writes: WritePlan): WriteItem[] {
     if (item.status === "exists") continue;
     mkdirSync(dirname(item.path), { recursive: true });
     writeFileSync(item.path, `${JSON.stringify(item.manifest, null, 2)}\n`);
+    for (const extra of item.extraFiles) writeFileSync(extra.path, extra.content);
     written.push(item);
   }
   return written;
