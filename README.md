@@ -15,6 +15,8 @@ It reads `Procfile`, `docker-compose*.yml`, `Dockerfile` and `package.json`, mer
 
 Status: checked through a real `tdk up`: an imported Compose + Dockerfile service and a Procfile (`node`) service both build, start and answer HTTP on `$PORT`. This needs a TDK release with `buildContext` ([tdk-cli-core#525](https://github.com/tdk-landscape/tdk-cli-core/pull/525)). A Procfile command for another runtime (Python, Ruby, ...) gets no Dockerfile: add one or an image.
 
+Publishing: run the "Publish tdk-import" workflow in tdk-landscape/tdk-cli-core (manual, with a tag of this repo; `dry_run` is on by default). It uses that repo's `NPM_TOKEN`, which is not set here.
+
 ```bash
 bun install && bun run build && bun run test
 ```
