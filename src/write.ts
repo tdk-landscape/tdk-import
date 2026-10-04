@@ -69,8 +69,8 @@ export function planWrites(plan: ImportPlan, force: boolean): WritePlan {
     const status: WriteStatus = !exists ? "create" : force ? "overwrite" : "exists";
     const notes: string[] = [];
 
-    // A file this run may replace does not count against itself.
-    used.delete(path);
+    // A file this run replaces does not count against itself; a kept one keeps its port.
+    if (status === "overwrite") used.delete(path);
     const keep = status === "overwrite" ? existingPort(path) : undefined;
     const taken = new Set(used.values());
     const free = (p: number) => p >= RANGE.min && p <= RANGE.max && !taken.has(p);

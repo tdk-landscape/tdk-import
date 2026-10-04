@@ -272,3 +272,14 @@ describe("merge across files", () => {
     expect(plan.skips.some((s) => s.file === "c/package.json")).toBe(true);
   });
 });
+
+describe("ports", () => {
+  it("does not hand a kept manifest's port to a new service", () => {
+    tree({ Procfile: "web: a\nworker: b\n" });
+    mkdirSync(dirname(serviceJson("web")), { recursive: true });
+    writeFileSync(serviceJson("web"), '{"port":4000}\n');
+    const items = planWrites(buildPlan(root), false).items;
+    expect(items.find((i) => i.service.name === "web")?.status).toBe("exists");
+    expect(items.find((i) => i.service.name === "worker")?.manifest.port).toBe(4001);
+  });
+});
