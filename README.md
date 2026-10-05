@@ -2,6 +2,8 @@
 
 Scan a repo and import the services it describes into [TDK](https://github.com/tdk-landscape/tdk-cli-core) as bring-your-own `service.json` files. Part of tdk-landscape/tdk-cli-core#511; the Procfile detector is tdk-landscape/tdk-cli-core#520.
 
+**Publication pending:** 0.1.1 is tagged, but [the publish workflow](https://github.com/tdk-landscape/tdk-cli-core/actions/runs/37298395884) was rejected by npm. npm latest remains 0.1.0. Do not run the pinned 0.1.1 commands until that version is published and its registry tarball is verified.
+
 ```bash
 npx -y @tdk-landscape/tdk-import@0.1.1 . --dry-run     # plan only
 npx -y @tdk-landscape/tdk-import@0.1.1 . --yes         # write services/<stack>/<name>/service.json

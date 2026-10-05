@@ -2,6 +2,8 @@
 
 `tdk-import [dir]` scans a directory, finds the services it describes, and writes one bring-your-own `service.json` per service. It plans first and asks before writing.
 
+**Publication pending:** 0.1.1 is tagged, but [the publish workflow](https://github.com/tdk-landscape/tdk-cli-core/actions/runs/37298395884) was rejected by npm. npm latest remains 0.1.0. Do not run the pinned 0.1.1 commands until that version is published and its registry tarball is verified.
+
 ```bash
 tdk-import .                    # scan, show the plan, ask before writing
 tdk-import . --dry-run          # plan only
