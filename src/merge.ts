@@ -14,6 +14,8 @@ export interface MergedService {
   image?: string;
   dockerfile?: string;
   command?: string;
+  /** Procfile commands retained for the importer's buildability check. */
+  procfileCommands: string[];
   port?: number;
   language?: "bun" | "node";
   envKeys: string[];
@@ -49,6 +51,9 @@ function mergeGroup(name: string, dir: string, members: Candidate[]): MergedServ
     kind: (ordered[0] as Candidate).kind,
     envKeys: [...new Set(ordered.flatMap((c) => c.envKeys ?? []))].sort(),
     dependsOn: [...new Set(ordered.flatMap((c) => (c.dependsOn ?? []).map(toResourceName)))].sort(),
+    procfileCommands: ordered.flatMap((c) =>
+      c.sources.some((source) => source.detector === "procfile") && c.command ? [c.command] : [],
+    ),
     conflicts: [],
     sources: [],
     confidence: ordered.every((c) => c.confidence === "high") ? "high" : "low",
