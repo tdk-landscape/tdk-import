@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
@@ -20,6 +21,7 @@ async function confirm(message: string): Promise<boolean> {
 }
 
 const program = new Command("tdk-import")
+  .version(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version)
   .description("Scan a directory and import the services it describes into TDK")
   .argument("[dir]", "Directory to scan", ".")
   .option("--dry-run", "Print the plan and write nothing", false)

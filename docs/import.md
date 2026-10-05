@@ -10,7 +10,7 @@ tdk-import . --only compose,procfile
 tdk-import . --yes --force      # overwrite existing service.json files
 ```
 
-**Published package status:** npm's `@tdk-landscape/tdk-import@0.1.0` predates the unsupported-infrastructure refusal and Procfile skip safeguards. Wait for a package release containing [tdk-import#9](https://github.com/tdk-landscape/tdk-import/pull/9) before relying on those behaviors; source changes merged here do not update npm. The supported entry point after that release is `npx -y @tdk-landscape/tdk-import@latest <dir>`.
+Use `npx -y @tdk-landscape/tdk-import@0.1.1 <dir>`. Version 0.1.1 includes the unsupported-infrastructure refusal and Procfile skip safeguards from [tdk-import#9](https://github.com/tdk-landscape/tdk-import/pull/9); 0.1.0 predates those guarantees.
 
 Manifests go to `<project>/services/<stack>/<name>/service.json`. The project is the nearest TDK project at or above `dir`, else `dir` itself. The stack is the kebab-cased name of `dir`. An existing `service.json` is never overwritten without `--force`.
 
