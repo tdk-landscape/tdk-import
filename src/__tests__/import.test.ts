@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildPlan } from "../plan.js";
 import { detectorIds, selectDetectors } from "../registry.js";
+import { isNodeCommand } from "../scaffold.js";
 import { scanTree } from "../scan.js";
 import { applyWrites, planWrites } from "../write.js";
 
@@ -63,6 +64,92 @@ describe("registry and scan", () => {
   });
 });
 
+describe("unsupported formats beside supported importers", () => {
+  it.each([
+    ["Compose", { "docker-compose.yml": "services:\n  api:\n    image: busybox\n" }, "api"],
+    ["Dockerfile", { Dockerfile: "FROM busybox\n" }, "shop"],
+    ["package.json script", { "package.json": '{"scripts":{"start":"node app.js"}}' }, "shop"],
+    ["Procfile", { Procfile: "web: node app.js\n" }, "web"],
+  ])(
+    "keeps the %s import when unsupported files are present",
+    (_label, supported, expectedName) => {
+      tree({
+        "Chart.yaml": "apiVersion: v2\n",
+        "kustomization.yaml": "resources: []\n",
+        ...supported,
+      });
+      const plan = buildPlan(root);
+      expect(plan.services.map((service) => service.name)).toContain(expectedName);
+      expect(plan.unsupported).toEqual(["Helm", "Kustomize"]);
+      expect(planWrites(plan, false).items.map((item) => item.service.name)).toContain(
+        expectedName,
+      );
+    },
+  );
+
+  it.each([
+    ["Helm", { "Chart.yaml": "apiVersion: v2\n" }],
+    ["Kustomize", { "kustomization.yaml": "resources: []\n" }],
+  ])("reports %s as unsupported-only input", (_label, files) => {
+    tree(files);
+    const plan = buildPlan(root);
+    expect(plan.services).toEqual([]);
+    expect(plan.unsupported).toEqual([_label]);
+    expect(planWrites(plan, false).items).toEqual([]);
+  });
+});
+
+describe("Procfile command classification", () => {
+  it.each(["node app.js", "npm start", "pnpm run dev", "yarn start", "bun app.ts"])(
+    "accepts the explicit Node/Bun prefix %s",
+    (command) => expect(isNodeCommand(command)).toBe(true),
+  );
+
+  it.each(["python app.py", "ruby app.rb", "gunicorn app:app", "poetry run server", "npx app"])(
+    "does not guess that %s is a supported command",
+    (command) => expect(isNodeCommand(command)).toBe(false),
+  );
+
+  it("imports a Node process while skipping an unbuildable Python sibling", () => {
+    tree({ Procfile: "web: python app.py\nworker: node worker.js\n" });
+    const plan = buildPlan(root);
+    expect(plan.services.map((service) => service.name)).toEqual(["worker"]);
+    expect(plan.skippedProcfileProcesses).toBe(1);
+    expect(plan.skips.some((skip) => skip.reason.includes('process "web" skipped'))).toBe(true);
+
+    applyWrites(planWrites(plan, false));
+    expect(existsSync(serviceJson("worker"))).toBe(true);
+    expect(existsSync(serviceJson("web"))).toBe(false);
+  });
+
+  it("keeps a non-Node Procfile process when a matching image is available", () => {
+    tree({
+      Procfile: "web: python app.py\n",
+      "docker-compose.yml": "services:\n  web:\n    image: python:3.12\n",
+    });
+    const plan = buildPlan(root);
+    expect(plan.services.map((service) => service.name)).toEqual(["web"]);
+    expect(plan.services[0]?.image).toBe("python:3.12");
+    expect(plan.skippedProcfileProcesses).toBe(0);
+  });
+
+  it("keeps a non-Node Procfile process when a matching Dockerfile is available", () => {
+    tree({ Procfile: "web: python app.py\n", Dockerfile: "FROM python:3.12\n" });
+    const plan = buildPlan(root);
+    expect(plan.services.map((service) => service.name)).toEqual(["web"]);
+    expect(plan.services[0]?.dockerfile).toBe("Dockerfile");
+    expect(plan.skippedProcfileProcesses).toBe(0);
+  });
+
+  it("records when every valid process was skipped", () => {
+    tree({ Procfile: "web: python app.py\nworker: ruby worker.rb\n" });
+    const plan = buildPlan(root);
+    expect(plan.services).toEqual([]);
+    expect(plan.skippedProcfileProcesses).toBe(2);
+    expect(planWrites(plan, false).items).toEqual([]);
+  });
+});
+
 describe("procfile detector (#520)", () => {
   const procfile = [
     "# comment",
@@ -74,36 +161,28 @@ describe("procfile detector (#520)", () => {
     "",
   ].join("\n");
 
-  it("emits one candidate per process, release as a job, malformed lines skipped with line numbers", () => {
+  it("imports supported commands and skips unbuildable processes, preserving malformed line numbers", () => {
     tree({ Procfile: procfile });
     const plan = buildPlan(root);
     expect(plan.services.map((s) => [s.name, s.kind])).toEqual([
       ["release", "job"],
-      ["web", "service"],
       ["worker", "service"],
     ]);
     expect(plan.services.every((s) => s.sources[0]?.file === "Procfile")).toBe(true);
     expect(plan.services.every((s) => s.port === undefined)).toBe(true);
-    expect(plan.skips.map((s) => s.line)).toEqual([5, 6]);
+    expect(plan.skips.map((s) => s.line).filter((line) => line !== undefined)).toEqual([5, 6]);
+    expect(plan.skips.some((s) => s.reason.includes('process "web" skipped'))).toBe(true);
   });
 
-  it("dry run plans without writing; --yes writes one manifest per process", () => {
+  it("keeps supported process manifests available to the writer", () => {
     tree({ Procfile: procfile });
     const plan = buildPlan(root);
     const writes = planWrites(plan, false);
-    expect(writes.items).toHaveLength(3);
+    expect(writes.items).toHaveLength(2);
     expect(existsSync(join(root, "services"))).toBe(false);
 
     applyWrites(writes);
-    const web = JSON.parse(readFileSync(serviceJson("web"), "utf8"));
-    expect(web).toMatchObject({
-      appName: "web",
-      appType: "bring-your-own",
-      stack: "shop",
-      port: 4001,
-      dev: { command: "bundle exec puma -C config/puma.rb" },
-    });
-    expect(JSON.parse(readFileSync(serviceJson("worker"), "utf8")).port).toBe(4002);
+    expect(JSON.parse(readFileSync(serviceJson("worker"), "utf8")).port).toBe(4001);
     expect(JSON.parse(readFileSync(serviceJson("release"), "utf8"))).toMatchObject({
       restart: "no",
       exposeViaProxy: false,
@@ -221,7 +300,7 @@ describe("merge across files", () => {
 
   it("does not guess when a directory has several named services", () => {
     tree({
-      Procfile: "web: a\nworker: b\n",
+      Procfile: "web: node a.js\nworker: node b.js\n",
       "package.json": '{"scripts":{"start":"node a.js"}}',
     });
     const plan = buildPlan(root);
@@ -276,7 +355,7 @@ describe("merge across files", () => {
 
 describe("ports", () => {
   it("does not hand a kept manifest's port to a new service", () => {
-    tree({ Procfile: "web: a\nworker: b\n" });
+    tree({ Procfile: "web: node a.js\nworker: node b.js\n" });
     mkdirSync(dirname(serviceJson("web")), { recursive: true });
     writeFileSync(serviceJson("web"), '{"port":4000}\n');
     const items = planWrites(buildPlan(root), false).items;
@@ -300,11 +379,11 @@ describe("runnable output", () => {
     expect(web?.extraFiles[0]?.content).toContain('CMD ["sh", "-c", "npm start"]');
     // a runtime we cannot build for is not guessed
     const worker = items.find((i) => i.service.name === "worker");
-    expect(worker?.extraFiles).toEqual([]);
-    expect(worker?.notes.join()).toContain("no image or Dockerfile found");
+    expect(worker).toBeUndefined();
     applyWrites(planWrites(buildPlan(root), false));
     expect(existsSync(join(root, "services", "shop", "web", "Dockerfile"))).toBe(true);
     expect(existsSync(join(root, "services", "shop", "worker", "Dockerfile"))).toBe(false);
+    expect(existsSync(serviceJson("worker"))).toBe(false);
   });
 
   it("does not re-import its own output or a TDK project's services/", () => {

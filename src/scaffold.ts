@@ -1,4 +1,9 @@
-const NODE_PROGRAMS = new Set(["node", "npm", "npx", "yarn", "pnpm"]);
+const NODE_PROGRAMS = new Set(["node", "npm", "yarn", "pnpm"]);
+
+/** The explicit Procfile command prefixes this importer can scaffold as Node/Bun. */
+export function isNodeCommand(command: string): boolean {
+  return /^(?:node|npm|pnpm|yarn|bun)(?:\s|$)/.test(command.trimStart());
+}
 
 /** The program a shell command starts, after any `KEY=value` prefixes. */
 function programOf(command: string): string | undefined {

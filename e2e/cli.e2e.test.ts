@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -120,13 +128,107 @@ describe("tdk-import (built CLI)", () => {
     expect(existsSync(join(helm, "services"))).toBe(false);
   });
 
+  it("refuses Helm-only input in dry-run without printing a plan", () => {
+    const helm = join(work, "helm-dry-run");
+    mkdirSync(helm);
+    writeFileSync(join(helm, "Chart.yaml"), "apiVersion: v2\n");
+    const r = run(["helm-dry-run", "--dry-run"]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("Chart.yaml [unsupported]: Helm is not imported");
+    expect(r.err).toContain("Helm is not imported");
+    expect(r.out).not.toContain("Found ");
+    expect(existsSync(join(helm, "services"))).toBe(false);
+  });
+
+  it("refuses Kustomize-only input normally and in dry-run without printing a plan", () => {
+    const kustomize = join(work, "kustomize");
+    mkdirSync(kustomize);
+    writeFileSync(join(kustomize, "kustomization.yaml"), "resources: []\n");
+    const normal = run(["kustomize"]);
+    expect(normal.code).toBe(2);
+    expect(normal.err).toContain("Kustomize is not imported");
+    expect(normal.out).not.toContain("Found ");
+
+    const r = run(["kustomize", "--dry-run"]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("kustomization.yaml [unsupported]: Kustomize is not imported");
+    expect(r.err).toContain("Kustomize is not imported");
+    expect(r.out).not.toContain("Found ");
+    expect(existsSync(join(kustomize, "services"))).toBe(false);
+  });
+
+  it("imports a Node Procfile sibling and skips Python with exit 0", () => {
+    const mixed = join(work, "mixed");
+    mkdirSync(mixed);
+    writeFileSync(join(mixed, "Procfile"), "web: python app.py\nworker: node worker.js\n");
+    const r = run(["mixed", "--yes"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('process "web" skipped');
+    expect(existsSync(join(mixed, "services", "mixed", "worker", "service.json"))).toBe(true);
+    expect(existsSync(join(mixed, "services", "mixed", "web", "service.json"))).toBe(false);
+  });
+
+  it("exits 2 without writes when every valid Procfile process is skipped", () => {
+    const skipped = join(work, "skipped");
+    mkdirSync(skipped);
+    writeFileSync(join(skipped, "Procfile"), "web: python app.py\nworker: ruby worker.rb\n");
+    const r = run(["skipped", "--dry-run"]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain('process "web" skipped');
+    expect(r.out).toContain('process "worker" skipped');
+    expect(r.out).not.toContain("Found ");
+    expect(existsSync(join(skipped, "services"))).toBe(false);
+  });
+
   it("lists Helm as skipped but still imports Compose when both exist", () => {
     cpSync(
       join(import.meta.dirname, "fixtures", "helm-only", "Chart.yaml"),
       join(repo, "Chart.yaml"),
     );
-    const r = run(["shop", "--dry-run"]);
+    const r = run(["shop", "--yes"]);
     expect(r.code).toBe(0);
     expect(r.out).toContain("Chart.yaml [unsupported]: Helm is not imported");
+    expect(existsSync(join(repo, "services", "shop", "api", "service.json"))).toBe(true);
+  });
+
+  it.each([
+    {
+      dir: "compose-mixed",
+      unsupported: "Chart.yaml",
+      input: "docker-compose.yml",
+      content: "services:\n  api:\n    image: busybox\n",
+      service: "api",
+    },
+    {
+      dir: "dockerfile-mixed",
+      unsupported: "kustomization.yaml",
+      input: "Dockerfile",
+      content: "FROM busybox\n",
+      service: "dockerfile-mixed",
+    },
+    {
+      dir: "package-mixed",
+      unsupported: "Chart.yaml",
+      input: "package.json",
+      content: '{"scripts":{"start":"node app.js"}}',
+      service: "package-mixed",
+    },
+    {
+      dir: "procfile-mixed",
+      unsupported: "kustomization.yaml",
+      input: "Procfile",
+      content: "web: node app.js\n",
+      service: "web",
+    },
+  ])("writes the $service service when $input appears beside unsupported input", (scenario) => {
+    const root = join(work, scenario.dir);
+    mkdirSync(root);
+    writeFileSync(join(root, scenario.unsupported), "resources: []\n");
+    writeFileSync(join(root, scenario.input), scenario.content);
+    const r = run([scenario.dir, "--yes"]);
+    expect(r.code).toBe(0);
+    expect(existsSync(join(root, "services", scenario.dir, scenario.service, "service.json"))).toBe(
+      true,
+    );
   });
 });

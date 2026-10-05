@@ -3,6 +3,7 @@ import { basename, resolve } from "node:path";
 import "./detectors/index.js";
 import { type MergedService, mergeCandidates } from "./merge.js";
 import { selectDetectors } from "./registry.js";
+import { isNodeCommand } from "./scaffold.js";
 import { scanTree } from "./scan.js";
 import type { Candidate, Skip } from "./types.js";
 import { findUnsupported } from "./unsupported.js";
@@ -13,6 +14,8 @@ export interface ImportPlan {
   skips: Skip[];
   /** Formats found but not imported (Helm, Kustomize), by name. */
   unsupported: string[];
+  /** Valid Procfile processes skipped because no supported command, Dockerfile, or image exists. */
+  skippedProcfileProcesses: number;
   notes: string[];
   files: string[];
 }
@@ -47,11 +50,30 @@ export function buildPlan(dir: string, only?: string[]): ImportPlan {
 
   const unsupported = findUnsupported(scan.files);
   const merged = mergeCandidates(candidates, basename(root));
+  const services = [];
+  let skippedProcfileProcesses = 0;
+  for (const service of merged.services) {
+    const unsupportedCommands = service.procfileCommands.filter(
+      (command) => !isNodeCommand(command),
+    );
+    if (unsupportedCommands.length > 0 && !service.image && !service.dockerfile) {
+      skippedProcfileProcesses += 1;
+      const source = service.sources.find((candidate) => candidate.detector === "procfile");
+      skips.push({
+        file: source?.file ?? "Procfile",
+        detector: "procfile",
+        reason: `process "${service.name}" skipped: command "${unsupportedCommands[0]}" is not a supported Node command and no Dockerfile or image is associated; add a Dockerfile or image`,
+      });
+      continue;
+    }
+    services.push(service);
+  }
   return {
     root,
-    services: merged.services,
+    services,
     skips: [...skips, ...merged.skips, ...unsupported.skips],
     unsupported: unsupported.labels,
+    skippedProcfileProcesses,
     notes: scan.notes,
     files: scan.files,
   };

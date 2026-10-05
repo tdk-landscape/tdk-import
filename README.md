@@ -13,7 +13,15 @@ The animation shows a three-line Procfile (`web`, `worker`, `release`) imported,
 
 It reads `Procfile`, `docker-compose*.yml`, `Dockerfile` and `package.json`, merges what several files say about one service, lists conflicts instead of guessing, and never overwrites a `service.json` without `--force`. See [docs/import.md](docs/import.md) for what maps, what is skipped, and how to add a detector, and `openspec/changes/import-repo/` for the spec.
 
-Status: checked through a real `tdk up`: an imported Compose + Dockerfile service and a Procfile (`node`) service both build, start and answer HTTP on `$PORT`. This needs a TDK release with `buildContext` ([tdk-cli-core#525](https://github.com/tdk-landscape/tdk-cli-core/pull/525)). A Procfile command for another runtime (Python, Ruby, ...) gets no Dockerfile: add one or an image.
+## Core version requirement
+
+Use TDK CLI core **1.3.104 or later** to start imported services. Version 1.3.104 is the first release with `buildContext` ([tdk-cli-core#525](https://github.com/tdk-landscape/tdk-cli-core/pull/525), [release 1.3.104](https://github.com/tdk-landscape/tdk-cli-releases/releases/tag/v1.3.104)). The importer does not check the installed TDK version. Upgrade TDK before running `tdk up` on imported services.
+
+## Procfile processes
+
+Commands beginning with `node`, `npm`, `pnpm`, `yarn`, or `bun` can be scaffolded. Other commands, including Python, Ruby, Gunicorn, and Poetry, are skipped unless a matching Dockerfile or image is present. A mixed Procfile imports the supported processes and reports the skipped ones; if every valid process is skipped, the command exits 2. Add a Dockerfile or image for a skipped process.
+
+Status: checked through a real `tdk up`: an imported Compose + Dockerfile service and a Procfile (`node`) service both build, start and answer HTTP on `$PORT`.
 
 Publishing: run the "Publish tdk-import" workflow in tdk-landscape/tdk-cli-core (manual, with a tag of this repo; `dry_run` is on by default). It uses that repo's `NPM_TOKEN`, which is not set here.
 

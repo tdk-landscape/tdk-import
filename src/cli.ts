@@ -35,17 +35,36 @@ const program = new Command("tdk-import")
       : undefined;
     const plan = buildPlan(dir, only);
     const writes = planWrites(plan, options.force);
+
+    if (
+      plan.services.length === 0 &&
+      (plan.unsupported.length > 0 || plan.skippedProcfileProcesses > 0)
+    ) {
+      for (const skip of plan.skips.filter((item) =>
+        ["procfile", "unsupported"].includes(item.detector),
+      )) {
+        console.log(`${skip.file} [${skip.detector}]: ${skip.reason}`);
+      }
+      const reasons = [
+        ...(plan.unsupported.length > 0 ? [`${plan.unsupported.join(", ")} is not imported`] : []),
+        ...(plan.skippedProcfileProcesses > 0
+          ? [`all ${plan.skippedProcfileProcesses} Procfile process(es) were skipped`]
+          : []),
+      ];
+      throw new ImportError(
+        `${reasons.join("; ")}; nothing was written`,
+        [
+          "Add a Dockerfile or image for skipped Procfile processes",
+          "tdk import reads Compose, Dockerfile, package.json scripts, and Procfile",
+        ],
+        2,
+      );
+    }
+
     console.log(formatPlan(plan, writes));
 
     const pending = writes.items.filter((i) => i.status !== "exists");
     if (plan.services.length === 0) {
-      if (plan.unsupported.length > 0) {
-        throw new ImportError(
-          `${plan.unsupported.join(", ")} is not imported; nothing was written`,
-          ["tdk import reads Compose, Dockerfile, package.json scripts, and Procfile"],
-          2,
-        );
-      }
       return void console.log("Nothing to import.");
     }
     if (options.dryRun) return void console.log("Dry run: nothing written.");
