@@ -10,6 +10,8 @@ tdk-import . --only compose,procfile
 tdk-import . --yes --force      # overwrite existing service.json files
 ```
 
+**Published package status:** npm's `@tdk-landscape/tdk-import@0.1.0` predates the unsupported-infrastructure refusal and Procfile skip safeguards. Wait for a package release containing [tdk-import#9](https://github.com/tdk-landscape/tdk-import/pull/9) before relying on those behaviors; source changes merged here do not update npm. The supported entry point after that release is `npx -y @tdk-landscape/tdk-import@latest <dir>`.
+
 Manifests go to `<project>/services/<stack>/<name>/service.json`. The project is the nearest TDK project at or above `dir`, else `dir` itself. The stack is the kebab-cased name of `dir`. An existing `service.json` is never overwritten without `--force`.
 
 ## What it reads
@@ -22,6 +24,8 @@ Manifests go to `<project>/services/<stack>/<name>/service.json`. The project is
 | `procfile` | `Procfile`, `Procfile.*` | one service per `name: command` line; `release` is a job |
 
 Procfile commands beginning with `node`, `npm`, `pnpm`, `yarn`, or `bun` are eligible for a generated Dockerfile. Other commands are skipped unless that process has a matching Dockerfile or image. Supported siblings are still imported; the command exits 2 only when every valid Procfile process is skipped.
+
+Imported services require TDK CLI core **1.3.104 or later**, the first release containing `buildContext` ([tdk-cli-core#525](https://github.com/tdk-landscape/tdk-cli-core/pull/525), [release 1.3.104](https://github.com/tdk-landscape/tdk-cli-releases/releases/tag/v1.3.104)). If core 1.3.104 is unavailable, import cannot be started yet; do not run `tdk up` against an older core. The importer does not detect the installed core version.
 
 One service is often described by several files. Candidates are grouped by directory and name: Compose `build: ./api` joins `api/Dockerfile` and `api/package.json`. A Dockerfile or `package.json` joins the single named service in its directory. When a directory has several named services, it is not guessed onto one; the file is listed as skipped.
 
