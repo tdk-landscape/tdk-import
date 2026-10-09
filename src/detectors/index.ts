@@ -1,6 +1,2 @@
-// Registration order is merge precedence: Compose, then Dockerfile, then package.json, then Procfile.
-// A new importer is one module registered here plus a fixture.
+// This release deliberately imports one source: the repository's root docker-compose.yml.
 import "./compose.js";
-import "./dockerfile.js";
-import "./package-json.js";
-import "./procfile.js";

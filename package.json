@@ -1,7 +1,7 @@
 {
   "name": "@tdk-landscape/tdk-import",
   "version": "0.1.1",
-  "description": "Scan a repo and import its Procfile, Compose, Dockerfile and package.json services into TDK service.json files.",
+  "description": "Import services from a repository's root docker-compose.yml into TDK service.json files.",
   "type": "module",
   "license": "MIT",
   "bin": {
