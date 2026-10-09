@@ -27,11 +27,13 @@ export interface WriteItem {
 export interface WritePlan {
   stack: string;
   items: WriteItem[];
+  projectConfig?: { path: string; content: string };
   /** Services that could not be written, with the reason. */
   rejected: { name: string; reason: string }[];
 }
 
-const RANGE = { ...BYO_PORT_RANGE, base: BYO_PORT_RANGE.min, range: BYO_PORT_RANGE.label };
+const HTTP_RANGE = { ...BYO_PORT_RANGE, base: BYO_PORT_RANGE.min, range: BYO_PORT_RANGE.label };
+const WORKER_RANGE = { min: 6000, max: 6999, base: 6000, range: "6000-6999" };
 
 function existingPort(path: string): number | undefined {
   try {
@@ -56,6 +58,39 @@ export function planWrites(plan: ImportPlan, force: boolean): WritePlan {
     ]);
   }
   const servicesDir = join(projectRoot, "services");
+  const projectConfigPath = join(projectRoot, ".tdk", "project.json");
+  const projectConfig = existsSync(projectConfigPath)
+    ? undefined
+    : {
+        path: projectConfigPath,
+        content: `${JSON.stringify(
+          {
+            version: "1.0",
+            project: { name: basename(projectRoot), version: "1.0.0" },
+            phases: {
+              pre_alpha: {
+                name: "Pre-Alpha",
+                description: "TDK proxy and imported Compose services",
+                enabledStacks: ["proxy", stack],
+              },
+              alpha: { name: "Alpha", description: "", enabledStacks: [] },
+              beta: { name: "Beta", description: "", enabledStacks: [] },
+              out_of_scope: { name: "Out of Scope", description: "", enabledStacks: [] },
+            },
+            optional_infra: {
+              monitoring: false,
+              elk: false,
+              debezium: false,
+              golden_image: false,
+              verdaccio: false,
+            },
+            discovery: { paths: ["services/*/*"] },
+            overrides: {},
+          },
+          null,
+          2,
+        )}\n`,
+      };
   const used = usedManifestPorts(servicesDir);
   const names = new Set(plan.services.map((s) => s.name));
   const items: WriteItem[] = [];
@@ -75,6 +110,8 @@ export function planWrites(plan: ImportPlan, force: boolean): WritePlan {
     // A file this run replaces does not count against itself; a kept one keeps its port.
     if (status === "overwrite") used.delete(path);
     const keep = status === "overwrite" ? existingPort(path) : undefined;
+    const isWorker = service.exposeViaProxy === false;
+    const RANGE = isWorker ? WORKER_RANGE : HTTP_RANGE;
     const taken = new Set(used.values());
     const free = (p: number) => p >= RANGE.min && p <= RANGE.max && !taken.has(p);
     let port: number | undefined;
@@ -83,7 +120,7 @@ export function planWrites(plan: ImportPlan, force: boolean): WritePlan {
       port = existingPort(path) ?? RANGE.base;
     } else if (keep !== undefined && free(keep)) {
       port = keep;
-    } else if (service.port !== undefined && free(service.port)) {
+    } else if (service.port !== undefined && service.port >= 1024 && service.port <= 65535) {
       port = service.port;
     } else {
       for (let p = RANGE.base; p <= RANGE.max; p++) {
@@ -92,11 +129,10 @@ export function planWrites(plan: ImportPlan, force: boolean): WritePlan {
           break;
         }
       }
-      if (port !== undefined && service.port !== undefined) {
+      if (service.port !== undefined && (service.port < RANGE.min || service.port > RANGE.max))
         notes.push(
-          `container port ${service.port} is outside TDK's ${RANGE.range} range; TDK assigned ${port}, so the app must read PORT`,
+          `kept Compose container port ${service.port}; it is outside TDK's usual ${RANGE.range} allocation range`,
         );
-      }
     }
     if (port === undefined) {
       rejected.push({ name: service.name, reason: `no free port in ${RANGE.range}` });
@@ -152,19 +188,25 @@ export function planWrites(plan: ImportPlan, force: boolean): WritePlan {
       appType: "bring-your-own",
       stack,
       port,
-      healthCheckPath: "/health",
+      ...(!isWorker ? { healthCheckPath: service.healthCheckPath ?? "/" } : {}),
       ...(service.image ? { image: service.image } : buildFields),
+      ...(service.exposeViaProxy === false ? { exposeViaProxy: false } : {}),
+      ...(isWorker ? { appType: "worker", exposeViaProxy: false } : {}),
       ...(service.kind === "job" ? { restart: "no", exposeViaProxy: false } : {}),
       ...(dependsOn.length ? { dependsOn } : {}),
       ...(service.command ? { dev: { command: service.command } } : {}),
     };
     items.push({ service, path, manifest, status, notes, extraFiles });
   }
-  return { stack, items, rejected };
+  return { stack, items, projectConfig, rejected };
 }
 
 export function applyWrites(writes: WritePlan): WriteItem[] {
   const written: WriteItem[] = [];
+  if (writes.projectConfig) {
+    mkdirSync(dirname(writes.projectConfig.path), { recursive: true });
+    writeFileSync(writes.projectConfig.path, writes.projectConfig.content, { flag: "wx" });
+  }
   for (const item of writes.items) {
     if (item.status === "exists") continue;
     mkdirSync(dirname(item.path), { recursive: true });

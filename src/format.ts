@@ -16,6 +16,7 @@ export function formatPlan(plan: ImportPlan, writes: WritePlan): string {
     `Found ${plan.services.length - jobs} service(s) and ${jobs} job(s) in ${plan.root}`,
     "",
   );
+  if (writes.projectConfig) out.push(`  .tdk/project.json  [create TDK project]`, "");
   for (const service of plan.services) {
     const item = writes.items.find((i) => i.service === service);
     out.push(`  ${service.name}  (${service.kind}${service.dir ? `, ${service.dir}/` : ""})`);
@@ -27,6 +28,8 @@ export function formatPlan(plan: ImportPlan, writes: WritePlan): string {
     if (service.command) out.push(`    command:   ${service.command}`);
     if (service.port !== undefined)
       out.push(`    port:      ${service.port} (inside the container)`);
+    if (service.healthCheckPath) out.push(`    health:    ${service.healthCheckPath}`);
+    if (service.dependsOn.length) out.push(`    depends:   ${service.dependsOn.join(", ")}`);
     if (service.language)
       out.push(`    runtime:   ${service.language} (detected, not mapped to a native provider)`);
     if (service.envKeys.length)

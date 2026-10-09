@@ -3,10 +3,7 @@ import { basename, resolve } from "node:path";
 import "./detectors/index.js";
 import { type MergedService, mergeCandidates } from "./merge.js";
 import { selectDetectors } from "./registry.js";
-import { isNodeCommand } from "./scaffold.js";
-import { scanTree } from "./scan.js";
 import type { Candidate, Skip } from "./types.js";
-import { findUnsupported } from "./unsupported.js";
 
 export interface ImportPlan {
   root: string;
@@ -20,62 +17,47 @@ export interface ImportPlan {
   files: string[];
 }
 
-/** Scan, detect, merge. Reads files, writes nothing. An unknown `--only` id throws before the walk. */
-export function buildPlan(dir: string, only?: string[]): ImportPlan {
+/** Read the one supported input, root docker-compose.yml. This function writes nothing. */
+export function buildPlan(dir: string): ImportPlan {
   const root = resolve(dir);
   if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error(`${dir} is not a directory`);
   }
-  const detectors = selectDetectors(only);
-  const scan = scanTree(root);
+  const composePath = "docker-compose.yml";
+  const detectors = selectDetectors(["compose"]);
   const candidates: Candidate[] = [];
   const skips: Skip[] = [];
 
-  for (const file of scan.files) {
-    for (const detector of detectors) {
-      if (!detector.claim(file)) continue;
-      try {
-        const result = detector.parse(resolve(root, file), file);
-        candidates.push(...result.candidates);
-        skips.push(...result.skips);
-      } catch (err) {
-        skips.push({
-          file,
-          detector: detector.id,
-          reason: `could not be read: ${err instanceof Error ? err.message : String(err)}`,
-        });
-      }
+  if (!statSync(resolve(root, composePath), { throwIfNoEntry: false })?.isFile()) {
+    throw new Error(
+      `No root docker-compose.yml found in ${root}; tdk import currently reads that file only`,
+    );
+  }
+  for (const detector of detectors) {
+    if (!detector.claim(composePath)) continue;
+    try {
+      const result = detector.parse(resolve(root, composePath), composePath);
+      candidates.push(...result.candidates);
+      skips.push(...result.skips);
+    } catch (err) {
+      skips.push({
+        file: composePath,
+        detector: detector.id,
+        reason: `could not be read: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
   }
 
-  const unsupported = findUnsupported(scan.files);
   const merged = mergeCandidates(candidates, basename(root));
-  const services = [];
-  let skippedProcfileProcesses = 0;
-  for (const service of merged.services) {
-    const unsupportedCommands = service.procfileCommands.filter(
-      (command) => !isNodeCommand(command),
-    );
-    if (unsupportedCommands.length > 0 && !service.image && !service.dockerfile) {
-      skippedProcfileProcesses += 1;
-      const source = service.sources.find((candidate) => candidate.detector === "procfile");
-      skips.push({
-        file: source?.file ?? "Procfile",
-        detector: "procfile",
-        reason: `process "${service.name}" skipped: command "${unsupportedCommands[0]}" is not a supported Node command and no Dockerfile or image is associated; add a Dockerfile or image`,
-      });
-      continue;
-    }
-    services.push(service);
-  }
+  const services = merged.services;
   return {
     root,
     services,
-    skips: [...skips, ...merged.skips, ...unsupported.skips],
-    unsupported: unsupported.labels,
-    skippedProcfileProcesses,
-    notes: scan.notes,
-    files: scan.files,
+    skips: [...skips, ...merged.skips],
+    unsupported: [],
+    skippedProcfileProcesses: 0,
+    notes: [],
+    files: [composePath],
   };
 }
 

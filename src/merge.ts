@@ -3,7 +3,7 @@ import { precedence } from "./registry.js";
 import type { Candidate, CandidateKind, Confidence, Skip, Source } from "./types.js";
 
 export interface Conflict {
-  field: "image" | "dockerfile" | "command" | "port" | "language";
+  field: "image" | "dockerfile" | "command" | "port" | "language" | "healthCheckPath";
   values: { value: string; sources: Source[] }[];
 }
 
@@ -17,6 +17,8 @@ export interface MergedService {
   /** Procfile commands retained for the importer's buildability check. */
   procfileCommands: string[];
   port?: number;
+  healthCheckPath?: string;
+  exposeViaProxy?: boolean;
   language?: "bun" | "node";
   envKeys: string[];
   dependsOn: string[];
@@ -37,7 +39,14 @@ export function toResourceName(raw: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-const SCALAR_FIELDS = ["image", "dockerfile", "command", "port", "language"] as const;
+const SCALAR_FIELDS = [
+  "image",
+  "dockerfile",
+  "command",
+  "port",
+  "language",
+  "healthCheckPath",
+] as const;
 
 function rank(candidate: Candidate): number {
   return Math.min(...candidate.sources.map((s) => precedence(s.detector)));
@@ -51,6 +60,7 @@ function mergeGroup(name: string, dir: string, members: Candidate[]): MergedServ
     kind: (ordered[0] as Candidate).kind,
     envKeys: [...new Set(ordered.flatMap((c) => c.envKeys ?? []))].sort(),
     dependsOn: [...new Set(ordered.flatMap((c) => (c.dependsOn ?? []).map(toResourceName)))].sort(),
+    exposeViaProxy: ordered.find((c) => c.exposeViaProxy !== undefined)?.exposeViaProxy,
     procfileCommands: ordered.flatMap((c) =>
       c.sources.some((source) => source.detector === "procfile") && c.command ? [c.command] : [],
     ),

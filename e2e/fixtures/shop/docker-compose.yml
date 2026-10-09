@@ -1,9 +1,11 @@
 services:
   api:
     build: ./api
-    ports: ["8080:3000"]
+    ports: ["8080:4000"]
     environment:
       DATABASE_URL: postgres://secret@db/app
     depends_on: [db]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
   db:
     image: postgres:16

@@ -25,6 +25,10 @@ export interface Candidate {
   command?: string;
   /** The port the service listens on inside its container, as stated by the source. */
   port?: number;
+  /** HTTP path found in a Compose healthcheck, when it uses an explicit URL. */
+  healthCheckPath?: string;
+  /** Whether TDK should expose this service through its Traefik router. */
+  exposeViaProxy?: boolean;
   /** Set only when the source plainly names the runtime. */
   language?: "bun" | "node";
   /** Environment variable names. Values are never carried: they may be secrets. */
